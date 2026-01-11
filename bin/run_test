@@ -1,0 +1,12 @@
+#!/bin/bash
+
+if [ -z "$1" ]; then
+	make test
+	exit 0
+fi
+
+TEST_NAME="$1"
+
+echo "Running tests matching: '$TEST_NAME'"
+
+go test -count=1 -race -shuffle=on -failfast -v ./... -run "$TEST_NAME"
