@@ -147,4 +147,4 @@ go vet ./...    # Must return zero warnings
 
 ## License
 
-MIT License - See LICENSE file for details.
+[MIT License](LICENSE)
