@@ -17,7 +17,7 @@ help:
 	@echo "  make clean          Remove built binaries"
 	@echo "  make test           Run all tests"
 	@echo "  make test-coverage  Run tests with coverage report"
-	@echo "  make test-ci        Run tests with coverage threshold (70%)"
+	@echo "  make test-ci        Run tests with coverage threshold (90%)"
 	@echo "  make deps           Download dependencies"
 	@echo ""
 
@@ -51,10 +51,10 @@ test-coverage:
 
 test-ci:
 	@echo "Running tests with coverage threshold check..."
-	@go test -v -race -coverprofile=coverage.out ./...
+	@go test -v -count=1 -race -coverprofile=coverage.out ./...
 	@go tool cover -func=coverage.out
-	@echo "Checking coverage threshold (70%)..."
-	@go tool cover -func=coverage.out | grep total | awk '{if ($$3 < 70.0) {print "Coverage below 70% threshold:", $$3; exit 1} else {print "Coverage passed:", $$3}}'
+	@echo "Checking coverage threshold (90%)..."
+	@go tool cover -func=coverage.out | grep total | awk '{if ($$3 < 90.0) {print "Coverage below 90% threshold:", $$3; exit 1} else {print "Coverage passed:", $$3}}'
 
 deps:
 	@echo "Downloading dependencies..."
