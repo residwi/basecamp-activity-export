@@ -10,9 +10,8 @@ bin/bclog
 *.test
 
 # Output
+activity-*.md
 *.out
-*.md
-!README.md
 coverage.*
 
 # Go workspace file
