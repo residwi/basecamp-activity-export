@@ -1,37 +1,41 @@
-# Export Basecamp Activity For Performance Review
+# Basecamp Activity Export
 
-`bcreview` is a CLI tool that generates comprehensive performance review reports from Basecamp 3 activity data.
+`bclog` is a CLI tool that exports your Basecamp 3 activity into a clean, organized markdown log.
 
-It fetches user contributions across multiple resource types, such as:
+It grabs things like:
 
 - Messages and comments
 - Todo items and todo lists
 - Cards and question answers
 
-The tool exports activity data as organized markdown reports with full descriptions, direct links to Basecamp resources, and epic categorization.
+## The Why
 
-## Features
+I built this because yearly performance reviews are stressful enough without having to play archaeologist with my own data.
 
-Manual performance reviews require time-consuming aggregation of scattered activities across projects, tools, and teams. `bcreview` solves this by:
+Basecamp is great for the day-to-day. Todos, messages, show and tells, stories, epics. But when I needed to answer "What did I actually ship this year?", I hit a wall. My work was scattered across dozens of projects, buried in "Show and Tells," hidden in closed Todo lists, or lost in long comment threads.
 
-- **Automating data collection** - Fetches all user activity automatically via Basecamp 3 API
-- **Providing comprehensive coverage** - Captures messages, todos, cards, and comments in a single report
-- **Organizing by epics** - Groups activities under their respective projects and topics
-- **Ensuring accuracy** - Includes full context with descriptions and direct links to source materials
-- **Optimizing performance** - Uses parallel fetching, smart caching, and rate limiting to minimize API load
+I didn't want to spend hours clicking through project after project and scrolling endlessly to find that one epic I led back in February. so I built `bclog`. It automates the digging and gives me a single file containing every story, epic, and contribution I made, so I have the receipts when review season comes around.
 
-Performance benefits:
+## What It Does
 
-- Concurrency for parallel resource fetching
-- Smart pagination reduces API calls by approximately 70%
-- HTTP caching with ETag/Last-Modified support
-- Sliding window rate limiter (50 requests per 10 seconds)
+- Pulls all your activity from Basecamp 3 API
+- Grabs messages, todos, cards, comments — all in one go
+- Groups everything by epic and project
+- Includes descriptions and links so you can actually verify things
+- Caches requests so you're not hammering the server unnecessarily
 
-## Quick Start
+It's also reasonably fast:
+
+- Fetches different resource types concurrently
+- Smart [pagination](https://github.com/basecamp/bc3-api?tab=readme-ov-file#pagination) with gallop search + binary search cuts API calls by ~70%
+- Respects [rate limits](https://github.com/basecamp/bc3-api?tab=readme-ov-file#rate-limiting-429-too-many-requests) (50 requests per 10 seconds)
+- Uses [HTTP caching](https://github.com/basecamp/bc3-api?tab=readme-ov-file#using-http-caching) with ETag support
+
+## Getting Started
 
 ### Prerequisites
 
-- Go 1.24.0 or higher
+- Go 1.25.0 or higher
 - Basecamp 3 account with activity data
 - Basecamp OAuth credentials (register at <https://launchpad.37signals.com/integrations>)
 
@@ -39,8 +43,8 @@ Performance benefits:
 
 ```bash
 # Clone repository
-git clone https://github.com/residwi/bcreview.git
-cd bcreview
+git clone https://github.com/residwi/basecamp-activity-export.git
+cd basecamp-activity-export
 
 # Install dependencies
 make deps
@@ -49,10 +53,10 @@ make deps
 make build
 ```
 
-Or build directly without Make:
+Or build directly:
 
 ```bash
-go build -o bin/bcreview ./cmd/bcreview
+go build -o bin/bclog ./cmd/bclog
 ```
 
 ### Configuration
@@ -75,31 +79,31 @@ BASECAMP_CLIENT_ID=your_client_id
 BASECAMP_CLIENT_SECRET=your_client_secret
 ```
 
-Configuration files:
+Tokens and cache live here:
 
-- OAuth tokens: `~/.config/bcreview/token.json`
-- HTTP cache: `~/.bcreview/cache/`
+- OAuth tokens: `~/.config/bclog/token.json`
+- HTTP cache: `~/.bclog/cache/`
 
 ### Usage
 
 ```bash
-# Authenticate with Basecamp OAuth
-./bin/bcreview login
+# Log in via browser
+./bin/bclog login
 
-# Generate performance review for current year
-./bin/bcreview export
+# Export this year's activity
+./bin/bclog export
 
-# Generate for specific year
-./bin/bcreview export --year 2024
+# Export a specific year
+./bin/bclog export --year 2025
 
-# View HTTP cache statistics
-./bin/bcreview cache stats
+# Check cache stats
+./bin/bclog cache stats
 
 # Clear HTTP cache
-./bin/bcreview cache clear
+./bin/bclog cache clear
 
 # Logout and clear cached token
-./bin/bcreview logout
+./bin/bclog logout
 ```
 
 ## Development
@@ -108,42 +112,56 @@ Configuration files:
 # Build binary
 make build
 
-# Run tests (current coverage: 63.8%)
+# Run tests
 make test
 
-# Generate test coverage report
+# Run tests with coverage report
 make test-coverage
 
-# Enforce coverage threshold (70%)
+# CI check with coverage threshold
 make test-ci
 
-# Test specific case
+# Run a specific test
 bin/run_test TestOAuthClient_Authorize
 
-# Dependency management
+# Dependencies
 make deps
 
 # Code quality checks
-gofmt -l .      # Must return zero files
-go vet ./...    # Must return zero warnings
+gofmt -l .
+go vet ./...
 ```
 
-### Key Patterns
+### Under the Hood
 
-**Pagination Strategy**: Exponential probing with binary search
+If you're digging into the code, here are a few things to look out for:
 
-1. Test pages [1, 2, 4, 8, 16, 32, 64, 128, 256] in parallel
-2. Cancel higher page probes when boundary found
-3. Binary search to refine exact boundary
-4. Fetch all valid pages concurrently
+#### **Smart Pagination**
 
-**Rate Limiting**: Sliding window algorithm with O(1) complexity prevents burst-at-boundary issues
+The API provides an `X-Total-Count` header, but we usually don't need the whole history, just the page with specific target year only. Instead of fetching everything blindly, we use gallop search (testing pages 1, 2, 4, 8, 16...) combined with binary search to find the last relevant page. Then we fetch only those pages concurrently. This cuts API calls by ~70% in typical cases.
 
-**Parallel Aggregation**: 6 goroutines fetch different resource types concurrently with `sync.WaitGroup` coordination and thread-safe error handling
+#### **Concurrency**
 
-**Context Propagation**: Uses `context.Context` to thread tracking and resource type information through the call chain
+6 goroutines fetch different resource types (messages, todos, todolists, cards, comments, question answers) concurrently using errgroup for coordination and error handling.
 
-**HTTP Optimization**: Connection pooling with `MaxIdleConnsPerHost=50` to prevent connection churn
+#### **Connection Pooling**
+
+To avoid connection churn during the burst of concurrent requests, we force MaxIdleConnsPerHost=20 (default is 2), keeping connections alive for reuse.
+
+#### **Observability**
+
+The internal trace package tracks spans (pagination, fetching, filtering), network stats (request counts, cache hits, rate limit waits), and pagination metrics — all thread-safe for concurrent use.
+
+#### **Middleware Chain**
+
+The HTTP client stacks middleware where each layer does one thing:
+
+- **Tracking**: records request metrics and timing
+- **Cache**: handles ETag/Last-Modified caching
+- **Retry**: exponential backoff with jitter for 429/5xx errors
+- **RateLimit**: token bucket to stay under API limits
+
+Each one wraps the next, keeping things separated and testable.
 
 ## License
 
