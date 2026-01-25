@@ -1,11 +1,11 @@
 .PHONY: build clean install test test-coverage test-ci help deps
 
-BINARY_NAME=bcreview
+BINARY_NAME=bclog
 BUILD_DIR=bin
-CMD_DIR=cmd/bcreview
+CMD_DIR=cmd/bclog
 
 help:
-	@echo "bcreview - Makefile commands"
+	@echo "bclog - Makefile commands"
 	@echo ""
 	@echo "Usage:"
 	@echo "  make build          Build the binary"

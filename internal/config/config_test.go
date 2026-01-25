@@ -33,7 +33,7 @@ func TestAppDir(t *testing.T) {
 		tempHome := t.TempDir()
 		t.Setenv("HOME", tempHome)
 
-		expectedDir := filepath.Join(tempHome, ".bcreview")
+		expectedDir := filepath.Join(tempHome, ".bclog")
 
 		_, err := os.Stat(expectedDir)
 		assert.ErrorIs(t, err, os.ErrNotExist)
@@ -53,7 +53,7 @@ func TestAppDir(t *testing.T) {
 		tempHome := t.TempDir()
 		t.Setenv("HOME", tempHome)
 
-		expectedDir := filepath.Join(tempHome, ".bcreview")
+		expectedDir := filepath.Join(tempHome, ".bclog")
 
 		err := os.MkdirAll(expectedDir, 0o700)
 		require.NoError(t, err)
@@ -68,7 +68,7 @@ func TestTokenFile(t *testing.T) {
 		tempHome := t.TempDir()
 		t.Setenv("HOME", tempHome)
 
-		expectedPath := filepath.Join(tempHome, ".bcreview", "token.json")
+		expectedPath := filepath.Join(tempHome, ".bclog", "token.json")
 
 		tokenFile := TokenFile()
 
@@ -81,10 +81,34 @@ func TestCacheDir(t *testing.T) {
 		tempHome := t.TempDir()
 		t.Setenv("HOME", tempHome)
 
-		expectedPath := filepath.Join(tempHome, ".bcreview", "cache")
+		expectedPath := filepath.Join(tempHome, ".bclog", "cache")
 
 		cacheDir := CacheDir()
 
 		assert.Equal(t, expectedPath, cacheDir)
+	})
+}
+
+func TestConcurrencyLimit(t *testing.T) {
+	t.Run("ConcurrencyLimit is hardcoded to 20", func(t *testing.T) {
+		t.Setenv("BASECAMP_ACCOUNT_ID", "1234567")
+		t.Setenv("BASECAMP_CLIENT_ID", "test-client-id")
+		t.Setenv("BASECAMP_CLIENT_SECRET", "test-client-secret")
+
+		cfg := MustLoad()
+
+		assert.Equal(t, 20, cfg.ConcurrencyLimit)
+	})
+}
+
+func TestUserAgent(t *testing.T) {
+	t.Run("UserAgent is hardcoded", func(t *testing.T) {
+		t.Setenv("BASECAMP_ACCOUNT_ID", "1234567")
+		t.Setenv("BASECAMP_CLIENT_ID", "test-client-id")
+		t.Setenv("BASECAMP_CLIENT_SECRET", "test-client-secret")
+
+		cfg := MustLoad()
+
+		assert.Equal(t, "bclog (github.com/residwi/basecamp-activity-export)", cfg.Basecamp.UserAgent)
 	})
 }

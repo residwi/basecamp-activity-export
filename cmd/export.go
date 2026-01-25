@@ -3,16 +3,19 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"time"
 
-	"github.com/residwi/bcreview/internal/aggregator"
-	"github.com/residwi/bcreview/internal/api"
-	"github.com/residwi/bcreview/internal/cache"
-	"github.com/residwi/bcreview/internal/config"
-	"github.com/residwi/bcreview/internal/export"
-	"github.com/residwi/bcreview/internal/oauth"
+	"github.com/residwi/basecamp-activity-export/internal/basecamp"
+	"github.com/residwi/basecamp-activity-export/internal/command/auth"
+	"github.com/residwi/basecamp-activity-export/internal/command/export"
+	"github.com/residwi/basecamp-activity-export/internal/config"
+	"github.com/residwi/basecamp-activity-export/internal/httpcache"
+	"github.com/residwi/basecamp-activity-export/internal/progress"
+	"github.com/residwi/basecamp-activity-export/internal/trace"
 	"github.com/spf13/cobra"
+	"golang.org/x/time/rate"
 )
 
 var exportFlags struct {
@@ -23,8 +26,8 @@ var exportFlags struct {
 
 var exportCmd = &cobra.Command{
 	Use:   "export",
-	Short: "Export performance review document",
-	Long:  "Generates a comprehensive performance review document based on Basecamp activity data",
+	Short: "Export activity report",
+	Long:  "Generates a comprehensive activity report based on Basecamp activity data",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := config.MustLoad()
 
@@ -32,62 +35,87 @@ var exportCmd = &cobra.Command{
 			return fmt.Errorf("no stored token found; please login first")
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Minute)
 		defer cancel()
 
-		oauthClient := oauth.NewClient(cfg)
+		oauthClient := auth.NewOAuthClient(cfg)
 		token, err := oauthClient.EnsureValidToken(ctx)
 		if err != nil {
 			return fmt.Errorf("ensuring valid token: %w", err)
 		}
 
-		var cacheManager cache.Manager
+		limiter := rate.NewLimiter(rate.Limit(5), 10)
+		var cacheManager httpcache.Manager
 		if !exportFlags.noCache {
-			cacheManager, err = cache.NewFileManager(config.CacheDir())
+			cacheManager, err = httpcache.NewFileManager(config.CacheDir())
 			if err != nil {
 				return fmt.Errorf("initializing cache: %w", err)
 			}
 		}
 
-		client := api.NewClient(exportFlags.accountID, token.AccessToken, cacheManager)
-		agg := aggregator.NewAggregator(client)
+		// Optimize transport for concurrent requests to the same host (default 20)
+		// avoids connection churn from the default of 2 during bursts
+		baseTransport := &http.Transport{
+			MaxIdleConns:        cfg.ConcurrencyLimit,
+			MaxIdleConnsPerHost: cfg.ConcurrencyLimit,
+			IdleConnTimeout:     90 * time.Second,
+		}
+		httpClient := &http.Client{
+			Timeout: 30 * time.Second,
+			Transport: basecamp.ChainTransport(
+				baseTransport,
+				basecamp.Tracking(),
+				basecamp.Cache(cacheManager),
+				basecamp.Retry(5),
+				basecamp.RateLimit(limiter),
+			),
+		}
 
-		activity, err := agg.AggregateUserActivity(context.Background(), exportFlags.year)
+		baseURL := fmt.Sprintf("https://3.basecampapi.com/%s", exportFlags.accountID)
+		client := basecamp.NewClient(
+			basecamp.WithHTTPClient(httpClient),
+			basecamp.WithAccountID(exportFlags.accountID),
+			basecamp.WithAccessToken(token.AccessToken),
+			basecamp.WithBaseURL(baseURL),
+			basecamp.WithUserAgent(cfg.Basecamp.UserAgent),
+			basecamp.WithConcurrencyLimit(cfg.ConcurrencyLimit),
+		)
+
+		tracker := trace.NewTracer()
+		filename := fmt.Sprintf("activity-%d.md", exportFlags.year)
+		exporter := export.New(
+			export.WithBasecampClient(client),
+			export.WithTracker(tracker),
+			export.WithFilename(filename),
+			export.WithDisplay(progress.NewDisplay(tracker)),
+		)
+		activity, err := exporter.FetchActivity(context.Background(), exportFlags.year)
 		if err != nil {
-			return fmt.Errorf("aggregating activity: %w", err)
+			return fmt.Errorf("exporting formatted activity: %w", err)
 		}
+		fmt.Printf("\n====================================================\n")
+		fmt.Printf("  Basecamp Activity Summary - %d\n", activity.Year())
+		fmt.Printf("====================================================\n")
+		fmt.Printf("  User: %s\n", activity.User().Name)
+		fmt.Printf("====================================================\n")
+		fmt.Printf("  Messages Created:          %d\n", len(activity.MessagesCreated()))
+		fmt.Printf("  Todos Created:             %d\n", len(activity.TodosCreated()))
+		fmt.Printf("  Todos Completed:           %d\n", len(activity.TodosCompleted()))
+		fmt.Printf("  Todolists Created:         %d\n", len(activity.TodolistsCreated()))
+		fmt.Printf("  Comments Written:          %d\n", len(activity.CommentsWritten()))
+		fmt.Printf("  Daily Check-in Answers:    %d\n", len(activity.QuestionAnswers()))
+		fmt.Printf("====================================================\n\n")
 
-		filename := fmt.Sprintf("performance-review-%d.md", exportFlags.year)
-		fmt.Printf("\nGenerating comprehensive performance review document...\n")
-		if err := export.ExportPerformanceReview(activity, filename); err != nil {
-			return fmt.Errorf("exporting performance review: %w", err)
+		fmt.Printf("Generating comprehensive activity report...\n")
+		if err := export.FormatAndSaveReport(activity, filename); err != nil {
+			return fmt.Errorf("formatting and saving report: %w", err)
 		}
-
-		fmt.Printf("\nPerformance review exported to: %s\n\n", filename)
+		fmt.Printf("\nActivity report exported to: %s\n", filename)
 		fmt.Println("This comprehensive report includes:")
 		fmt.Println("  • Full descriptions with HTML converted to Markdown")
 		fmt.Println("  • Direct links to all items in Basecamp")
-		fmt.Println("  • Your comments and contributions on each item")
-		fmt.Printf("  • Organized by Epic\n\n")
-
-		summary := activity.Summary()
-
-		fmt.Printf("\n")
-		fmt.Printf("====================================================\n")
-		fmt.Printf("  Basecamp Activity Summary - %d\n", activity.Year)
-		fmt.Printf("====================================================\n")
-		fmt.Printf("  User: %s\n", activity.User.Name)
-		fmt.Printf("====================================================\n")
-		fmt.Printf("  Messages Created:          %d\n", summary.TotalMessages)
-		fmt.Printf("  Todos Created:             %d\n", summary.TotalTodos)
-		fmt.Printf("  Todos Completed:           %d\n", summary.CompletedTodos)
-		fmt.Printf("  Todolists Created:         %d\n", summary.TotalTodolists)
-		fmt.Printf("  Comments Written:          %d\n", summary.TotalComments)
-		fmt.Printf("  Daily Check-in Answers:    %d\n", summary.TotalQuestionAnswers)
-		fmt.Printf("====================================================\n\n")
-
-		fmt.Println("\nAPI Rate Limit Info:")
-		fmt.Printf("  • Rate Limit Hits: %d\n", client.GetRateLimitHits())
+		fmt.Println("  • Your comments and activity on each item")
+		fmt.Printf("  • Organized by project\n\n")
 
 		return nil
 	},

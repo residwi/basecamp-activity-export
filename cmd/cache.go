@@ -3,8 +3,7 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/residwi/bcreview/internal/cache"
-	"github.com/residwi/bcreview/internal/config"
+	"github.com/residwi/basecamp-activity-export/internal/command/cache"
 	"github.com/spf13/cobra"
 )
 
@@ -19,13 +18,8 @@ var cacheClearCmd = &cobra.Command{
 	Short: "Clear all cached data",
 	Long:  "Removes all cached API responses, forcing fresh requests on next run",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cacheManager, err := cache.NewFileManager(config.CacheDir())
-		if err != nil {
-			return fmt.Errorf("initializing cache manager: %w", err)
-		}
-
-		if err := cacheManager.Clear(cmd.Context()); err != nil {
-			return fmt.Errorf("clearing cache: %w", err)
+		if err := cache.Clear(cmd.Context()); err != nil {
+			return err
 		}
 
 		fmt.Println("Cache cleared successfully")
@@ -38,19 +32,15 @@ var cacheStatsCmd = &cobra.Command{
 	Short: "Show cache statistics",
 	Long:  "Display information about cached API responses including size and entry count",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cacheManager, err := cache.NewFileManager(config.CacheDir())
+		stats, err := cache.Stats(cmd.Context())
 		if err != nil {
-			return fmt.Errorf("initializing cache manager: %w", err)
-		}
-		stats, err := cacheManager.Stats(cmd.Context())
-		if err != nil {
-			return fmt.Errorf("getting cache stats: %w", err)
+			return err
 		}
 
 		fmt.Printf("Cache Statistics:\n")
-		fmt.Printf("  Location: %s\n", config.CacheDir())
-		fmt.Printf("  Total Entries: %d\n", stats.TotalEntries)
-		fmt.Printf("  Total Size: %.2f MB\n", float64(stats.TotalSize)/(1024*1024))
+		fmt.Printf("  Location: %s\n", stats.CacheDir)
+		fmt.Printf("  Total Entries: %d\n", stats.TotalFiles)
+		fmt.Printf("  Total Size: %s\n", stats.TotalSizeFormatted)
 
 		if stats.OldestEntry != nil {
 			fmt.Printf("  Oldest Entry: %s\n", stats.OldestEntry.Format("2006-01-02 15:04:05"))

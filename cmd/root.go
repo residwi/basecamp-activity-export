@@ -8,10 +8,10 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "bcreview",
-	Short: "Basecamp Activity Aggregator for Performance Reviews",
-	Long: `A comprehensive CLI tool to fetch and aggregate your Basecamp activity.
-	Generates performance-review-ready reports with complete activity history.`,
+	Use:   "bclog",
+	Short: "Basecamp Activity Export Tool",
+	Long: `A comprehensive CLI tool to fetch and export your Basecamp activity data.
+	Generates activity reports with complete activity history.`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		cmd.SilenceUsage = true
 		cmd.SilenceErrors = true
