@@ -1,3 +1,7 @@
+# Load the .env file if it exists and export variables
+-include .env
+export
+
 .PHONY: build clean install test test-coverage test-ci help deps
 
 BINARY_NAME=bclog
